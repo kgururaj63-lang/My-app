@@ -1,0 +1,6 @@
+{
+  "name": "DataLink P2P",
+  "description": "A production-grade decentralized data-sharing platform with real-time billing, P2P mesh transfers, and carrier-agnostic data synchronization.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": []
+}

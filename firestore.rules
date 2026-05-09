@@ -1,0 +1,109 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // --- Global Deny ---
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Connection Test ---
+    match /test/connection {
+      allow get: if true;
+    }
+
+    // --- User Rules ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['phoneNumber', 'displayName', 'balanceMB', 'lastActive', 'uid', 'carrier']) &&
+             data.keys().size() == 6 &&
+             data.phoneNumber is string && data.phoneNumber.size() <= 20 &&
+             data.displayName is string && data.displayName.size() <= 100 &&
+             data.balanceMB is number &&
+             data.carrier in ['Jio', 'Airtel', 'Vi', 'BSNL', 'Other'] &&
+             data.uid is string;
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId);
+      allow list: if isSignedIn(); // For searching by phone number
+      
+      allow create: if isVerified() && isOwner(userId) && isValidUser(incoming()) && 
+                       incoming().uid == request.auth.uid &&
+                       (incoming().balanceMB >= 1023 && incoming().balanceMB <= 1025); // Initial ~1GB
+      
+      allow update: if isVerified() && isValidUser(incoming()) && (
+        // Action 1: Self Updates (Profile or Sending Data)
+        (isOwner(userId) && incoming().uid == request.auth.uid && (
+          // Sub-action: Profile Update
+          (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'lastActive', 'carrier'])) ||
+          
+          // Sub-action: Sending Data (Decrease balance)
+          (incoming().balanceMB < existing().balanceMB && 
+           incoming().diff(existing()).affectedKeys().hasAll(['balanceMB', 'lastActive']) &&
+           incoming().phoneNumber == existing().phoneNumber)
+        )) ||
+         
+        // Action 2: Receiving Data (Increase balance from someone else)
+        (incoming().uid == userId &&
+         incoming().uid == existing().uid &&
+         incoming().phoneNumber == existing().phoneNumber &&
+         incoming().displayName == existing().displayName &&
+         incoming().carrier == existing().carrier &&
+         incoming().balanceMB > existing().balanceMB &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['balanceMB']))
+      );
+    }
+
+    // --- Transaction Rules ---
+    function isValidTransaction(data) {
+      let baseKeys = ['fromUid', 'toUid', 'fromPhone', 'toPhone', 'amountMB', 'timestamp', 'status', 'fromCarrier', 'toCarrier'];
+      return data.keys().hasAll(baseKeys) &&
+             data.amountMB is number && data.amountMB > 0 && data.amountMB <= 10000 &&
+             data.status == 'completed' &&
+             data.timestamp == request.time;
+    }
+
+    match /transactions/{transactionId} {
+      allow get: if isSignedIn() && isValidId(transactionId) && 
+                    (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
+      allow list: if isSignedIn() && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
+      
+      allow create: if isVerified() && isValidTransaction(incoming()) && (
+        // Action: P2P Transfer
+        (incoming().fromUid == request.auth.uid && incoming().keys().size() == 9) ||
+        // Action: Store Purchase
+        (incoming().fromUid == 'SYSTEM_STORE' && incoming().toUid == request.auth.uid && incoming().type == 'purchase' && incoming().keys().size() == 10)
+      );
+    }
+
+    // --- Lookup Rules ---
+    match /phoneToUid/{phoneNumber} {
+      allow get: if isSignedIn();
+      allow create: if isVerified() && incoming().uid == request.auth.uid;
+    }
+  }
+}

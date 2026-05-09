@@ -1,0 +1,51 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the DataLink P2P network.",
+      "type": "object",
+      "properties": {
+        "phoneNumber": { "type": "string", "description": "Mobile number used as unique identifier." },
+        "displayName": { "type": "string", "description": "Display name of the user." },
+        "balanceMB": { "type": "integer", "description": "Current data balance in MB." },
+        "lastActive": { "type": "string", "format": "date-time", "description": "Timestamp of last network activity." },
+        "uid": { "type": "string", "description": "Firebase Auth UID." }
+      },
+      "required": ["phoneNumber", "balanceMB", "uid"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "A data transfer between users.",
+      "type": "object",
+      "properties": {
+        "fromUid": { "type": "string", "description": "UID of the sender." },
+        "toUid": { "type": "string", "description": "UID of the receiver." },
+        "fromPhone": { "type": "string", "description": "Phone number of the sender." },
+        "toPhone": { "type": "string", "description": "Phone number of the receiver." },
+        "amountMB": { "type": "integer", "description": "Amount of data transferred in MB." },
+        "timestamp": { "type": "string", "format": "date-time", "description": "Time of transaction." },
+        "status": { "type": "string", "enum": ["completed", "pending", "failed"] }
+      },
+      "required": ["fromUid", "toUid", "amountMB", "timestamp", "status"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User profiles and data balances."
+    },
+    "transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Record of all data transfers."
+    },
+    "phoneToUid/{phoneNumber}": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "uid": { "type": "string" }
+        }
+      },
+      "description": "Mapping of phone numbers to UIDs for lookups."
+    }
+  }
+}
